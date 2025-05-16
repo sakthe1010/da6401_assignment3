@@ -1,0 +1,30 @@
+# sweep.yaml
+program: train.py
+method: grid
+metric:
+  name: valid_loss
+  goal: minimize
+
+parameters:
+  emb_dim: 
+    values: [16, 32, 64, 256]
+  n_encoder_layers:
+    values: [1, 2, 3]
+  n_decoder_layers:
+    values: [1, 2, 3]
+  hid_dim: 
+    values: [16, 32, 64, 256]
+  n_layers:
+    values: [1, 2, 3]
+  cell_type:
+    values: ['rnn', 'gru', 'lstm']
+  dropout:
+    values: [0.1, 0.2, 0.3]
+  lr:
+    values: [0.001, 0.0005]
+  batch_size:
+    values: [32, 64]
+  beam_size:
+    values: [1, 3, 5]  
+  epochs:
+    value: 10

@@ -60,3 +60,45 @@ class Seq2Seq(nn.Module):
             input = trg[t] if torch.rand(1).item() < teacher_forcing_ratio else top1
 
         return outputs
+    
+def beam_decode(self, src, sos_idx, eos_idx, max_len=30, beam_size=3):
+    """
+    Beam search decoding for a single example (batch size = 1).
+    """
+    self.encoder.eval()
+    self.decoder.eval()
+
+    with torch.no_grad():
+        src = src.unsqueeze(1)  # [src_len, 1]
+        encoder_hidden = self.encoder(src)
+        beams = [( [sos_idx], 0.0, encoder_hidden )]  # (token_seq, score, hidden)
+
+        completed = []
+
+        for _ in range(max_len):
+            new_beams = []
+            for seq, score, hidden in beams:
+                last_token = torch.tensor([seq[-1]], device=self.device)
+
+                output, hidden = self.decoder(last_token, hidden)
+                log_probs = torch.log_softmax(output, dim=-1).squeeze(0)
+
+                topk = torch.topk(log_probs, beam_size)
+
+                for i in range(beam_size):
+                    next_token = topk.indices[i].item()
+                    next_score = score + topk.values[i].item()
+                    new_seq = seq + [next_token]
+
+                    if next_token == eos_idx:
+                        completed.append((new_seq, next_score))
+                    else:
+                        new_beams.append((new_seq, next_score, hidden))
+
+            beams = sorted(new_beams, key=lambda x: x[1], reverse=True)[:beam_size]
+
+        if not completed:
+            completed = beams
+        best_seq = sorted(completed, key=lambda x: x[1], reverse=True)[0][0]
+        return best_seq
+
