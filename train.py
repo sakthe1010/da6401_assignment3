@@ -59,8 +59,9 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load dataset
-    train_path = "path/to/ta.translit.sampled.train.tsv"  # ⬅️ update path
-    valid_path = "path/to/ta.translit.sampled.dev.tsv"    # ⬅️ update path
+    train_path = "dakshina_dataset_v1.0/ta/lexicons/bn.translit.sampled.train.tsv"
+    valid_path = "dakshina_dataset_v1.0/ta/lexicons/bn.translit.sampled.dev.tsv"
+
 
     train_data = TransliterationDataset(train_path)
     valid_data = TransliterationDataset(valid_path)
