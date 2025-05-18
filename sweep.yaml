@@ -1,6 +1,6 @@
 # sweep.yaml
 program: train.py
-method: grid
+method: bayes
 metric:
   name: valid_loss
   goal: minimize
