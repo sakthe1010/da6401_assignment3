@@ -1,185 +1,189 @@
+import os
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader
-from model import Encoder, Decoder, Seq2Seq
-from dataset import TransliterationDataset, collate_fn
 from tqdm import tqdm
 import wandb
 
-def decode_seq(seq_tensor, idx2char):
-    chars = []
-    for idx in seq_tensor:
-        ch = idx2char.get(idx.item(), "")
-        if ch == "<eos>": break
-        if ch not in ["<pad>", "<sos>"]:
-            chars.append(ch)
-    return "".join(chars)
+from dataset import read_data, build_vocab, TransliterationDataset
+from model import Encoder, Decoder, Seq2Seq
 
-def exact_match(preds, targets):
-    correct = sum([p == t for p, t in zip(preds, targets)])
-    return correct / len(preds) if preds else 0.0
+# ----------------------------
+# CONFIGURATION
+# ----------------------------
+DEVICE    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+DATA_DIR  = "dakshina_dataset_v1.0/ta/lexicons"
+TRAIN_FILE= os.path.join(DATA_DIR, "ta.translit.sampled.train.tsv")
+DEV_FILE  = os.path.join(DATA_DIR, "ta.translit.sampled.dev.tsv")
+MAX_LEN   = 20   # ← set based on 95th percentile
 
-def train(model, iterator, optimizer, criterion, trg_pad_idx, clip=1.0):
+# ----------------------------
+# ACCURACY METRICS
+# ----------------------------
+def sequence_accuracy(pred, trg, pad_idx):
+    pred_ids = pred.argmax(-1)
+    mask     = trg != pad_idx
+    equal    = (pred_ids == trg) | ~mask
+    seq_corr = equal.all(dim=1).float()
+    return seq_corr.mean().item()
+
+def char_accuracy(pred, trg, pad_idx):
+    pred_ids = pred.argmax(-1)
+    mask     = trg != pad_idx
+    correct  = (pred_ids == trg) & mask
+    return correct.sum().item() / mask.sum().item()
+
+# ----------------------------
+# TRAIN / VALIDATION
+# ----------------------------
+def train_epoch(model, loader, optimizer, criterion, pad_idx):
     model.train()
-    total_loss, total_correct, total_tokens = 0, 0, 0
-
-    for src, trg in tqdm(iterator):
-        src, trg = src.to(model.device), trg.to(model.device)
+    tot_loss = tot_seq_acc = tot_char_acc = 0.0
+    pbar = tqdm(loader, desc="Training", unit="batch")
+    for src, trg in pbar:
+        src, trg = src.to(DEVICE), trg.to(DEVICE)
         optimizer.zero_grad()
         output = model(src, trg)
-
-        output_dim = output.shape[-1]
-        output = output[1:].view(-1, output_dim)
-        trg = trg[1:].view(-1)
-
-        loss = criterion(output, trg)
+        loss   = criterion(
+            output[:,1:].reshape(-1, output.size(-1)),
+            trg   [:,1:].reshape(-1)
+        )
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
         optimizer.step()
 
-        pred = output.argmax(1)
-        mask = trg != trg_pad_idx
-        correct = (pred == trg) & mask
-        total_correct += correct.sum().item()
-        total_tokens += mask.sum().item()
-        total_loss += loss.item()
+        seq_acc  = sequence_accuracy(output, trg, pad_idx)
+        char_acc = char_accuracy  (output, trg, pad_idx)
 
-    acc = total_correct / total_tokens
-    return total_loss / len(iterator), acc
+        tot_loss     += loss.item()
+        tot_seq_acc  += seq_acc
+        tot_char_acc += char_acc
 
-def evaluate(model, iterator, criterion, trg_pad_idx, trg_idx2char, src_idx2char, beam_size=1, sos_idx=1, eos_idx=2, log_examples=5):
-    model.eval()
-    total_loss, total_correct, total_tokens = 0, 0, 0
-    pred_strs, tgt_strs, input_strs = [], [], []
-
-    with torch.no_grad():
-        for batch_idx, (src, trg) in enumerate(iterator):
-            src, trg = src.to(model.device), trg.to(model.device)
-
-            if beam_size == 1:
-                # Greedy decoding for efficient evaluation
-                output = model(src, trg, teacher_forcing_ratio=0)
-                output_dim = output.shape[-1]
-                output = output[1:].view(-1, output_dim)
-                trg_flat = trg[1:].view(-1)
-
-                loss = criterion(output, trg_flat)
-                total_loss += loss.item()
-
-                pred = output.argmax(1)
-                mask = trg_flat != trg_pad_idx
-                correct = (pred == trg_flat) & mask
-                total_correct += correct.sum().item()
-                total_tokens += mask.sum().item()
-
-                if batch_idx == 0:
-                    for i in range(min(log_examples, src.shape[1])):
-                        pred_seq = pred.view(-1, src.shape[1])[:, i]
-                        trg_seq = trg_flat.view(-1, src.shape[1])[:, i]
-                        pred_str = decode_seq(pred_seq, trg_idx2char)
-                        tgt_str = decode_seq(trg_seq, trg_idx2char)
-                        inp_str = decode_seq(src[:, i], src_idx2char)
-                        print(f"[EXAMPLE {i}] INPUT: {inp_str} | PRED: {pred_str} | TRUE: {tgt_str}")
-
-            else:
-                # Beam decoding for accurate evaluation (more computationally expensive)
-                for i in range(src.shape[1]):
-                    src_seq = src[:, i]
-                    trg_seq = trg[:, i]
-
-                    pred_idx_seq = model.beam_decode(src_seq, sos_idx, eos_idx, beam_size=beam_size)
-                    pred_str = decode_seq(torch.tensor(pred_idx_seq), trg_idx2char)
-                    tgt_str = decode_seq(trg_seq, trg_idx2char)
-                    inp_str = decode_seq(src_seq, src_idx2char)
-
-                    pred_strs.append(pred_str)
-                    tgt_strs.append(tgt_str)
-                    input_strs.append(inp_str)
-
-                    if batch_idx == 0 and i < log_examples:
-                        print(f"[EXAMPLE {i}] INPUT: {inp_str} | PRED: {pred_str} | TRUE: {tgt_str}")
-
-        # Calculate accuracy
-        if beam_size == 1:
-            acc = total_correct / total_tokens
-        else:
-            acc = exact_match(pred_strs, tgt_strs)
-            wandb.log({
-                "sample_predictions": [f"IN: {inp} | PRED: {p} | TRUE: {t}" 
-                                       for inp, p, t in zip(input_strs[:log_examples], pred_strs[:log_examples], tgt_strs[:log_examples])]
-            })
-
-    avg_loss = total_loss / len(iterator)
-    return avg_loss, acc
-
-
-def main():
-    wandb.init(
-        project="transliteration-sweep",
-        config={
-            "batch_size": 32,
-            "emb_dim": 64,
-            "hid_dim": 128,
-            "n_encoder_layers": 1,
-            "n_decoder_layers": 1,
-            "cell_type": "gru",
-            "dropout": 0.3,
-            "lr": 0.0005,
-            "beam_size": 3,
-            "epochs": 5
-        }
-    )
-    config = wandb.config
-
-    run_name = f"emb{config.emb_dim}-hid{config.hid_dim}-enc{config.n_encoder_layers}-dec{config.n_decoder_layers}-{config.cell_type}-drop{config.dropout}-bs{config.batch_size}-beam{config.beam_size}-lr{config.lr}"
-    wandb.run.name = run_name
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    train_path = "dakshina_dataset_v1.0/ta/lexicons/ta.translit.sampled.train.tsv"
-    valid_path = "dakshina_dataset_v1.0/ta/lexicons/ta.translit.sampled.dev.tsv"
-
-    train_data = TransliterationDataset(train_path)
-    valid_data = TransliterationDataset(valid_path)
-
-    src_pad_idx, trg_pad_idx = train_data.get_pad_idx()
-    input_dim, output_dim = train_data.get_vocab_sizes()
-
-    train_loader = DataLoader(train_data, batch_size=config.batch_size, shuffle=True, collate_fn=collate_fn)
-    valid_loader = DataLoader(valid_data, batch_size=config.batch_size, shuffle=False, collate_fn=collate_fn)
-
-    dropout = config.dropout if config.n_encoder_layers > 1 or config.n_decoder_layers > 1 else 0.0
-
-    encoder = Encoder(input_dim, config.emb_dim, config.hid_dim, config.n_encoder_layers, config.cell_type, dropout)
-    decoder = Decoder(output_dim, config.emb_dim, config.hid_dim, config.n_decoder_layers, config.cell_type, dropout)
-    model = Seq2Seq(encoder, decoder, device).to(device)
-
-    optimizer = optim.Adam(model.parameters(), lr=config.lr)
-    criterion = nn.CrossEntropyLoss(ignore_index=trg_pad_idx)
-
-    best_val_loss = float("inf")
-
-    for epoch in range(config.epochs):
-        train_loss, train_acc = train(model, train_loader, optimizer, criterion, trg_pad_idx)
-        val_loss, val_acc = evaluate(model, valid_loader, criterion, trg_pad_idx,
-                                     valid_data.trg_idx2char, valid_data.src_idx2char,  beam_size=1)
-
-        wandb.log({
-            "epoch": epoch,
-            "train_loss": train_loss,
-            "train_acc": train_acc,
-            "valid_loss": val_loss,
-            "valid_acc": val_acc
+        pbar.set_postfix({
+            "loss":     tot_loss / (pbar.n+1),
+            "seq_acc":  tot_seq_acc / (pbar.n+1),
+            "char_acc": tot_char_acc / (pbar.n+1),
         })
 
-        print(f"[Epoch {epoch+1}] Train Loss: {train_loss:.3f}, Val Loss: {val_loss:.3f}, Train Acc: {train_acc:.3f}, Val Acc: {val_acc:.3f}")
+    n = len(loader)
+    return tot_loss/n, tot_seq_acc/n, tot_char_acc/n
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            torch.save(model.state_dict(), "best_seq2seq.pt")
+def eval_epoch(model, loader, criterion, pad_idx):
+    model.eval()
+    tot_seq_acc = tot_char_acc = 0.0
+    pbar = tqdm(loader, desc="Validating", unit="batch", leave=False)
+    with torch.no_grad():
+        for src, trg in pbar:
+            src, trg = src.to(DEVICE), trg.to(DEVICE)
+            output = model(src, trg, teacher_forcing_ratio=0.0)
+            seq_acc  = sequence_accuracy(output, trg, pad_idx)
+            char_acc = char_accuracy  (output, trg, pad_idx)
 
-    wandb.finish()
+            tot_seq_acc  += seq_acc
+            tot_char_acc += char_acc
+
+            pbar.set_postfix({
+                "seq_acc":  tot_seq_acc  / (pbar.n+1),
+                "char_acc": tot_char_acc / (pbar.n+1),
+            })
+
+    n = len(loader)
+    return tot_seq_acc/n, tot_char_acc/n
+
+# ----------------------------
+# MAIN
+# ----------------------------
+def main(config=None):
+    with wandb.init(
+        project="transliteration-sweep",
+        config=config or {
+            "batch_size":       32,
+            "emb_dim":          64,
+            "hid_dim":          128,
+            "n_encoder_layers": 1,
+            "n_decoder_layers": 1,
+            "cell_type":        "GRU",
+            "dropout":          0.3,
+            "lr":               0.0005,
+            "beam_size":        3,
+            "epochs":           5
+        }
+    ):
+        cfg = wandb.config
+        run_name = (
+            f"emb{cfg.emb_dim}-hid{cfg.hid_dim}"
+            f"-enc{cfg.n_encoder_layers}-dec{cfg.n_decoder_layers}"
+            f"-{cfg.cell_type}-drop{cfg.dropout}"
+            f"-bs{cfg.batch_size}-beam{cfg.beam_size}-lr{cfg.lr}"
+        )
+        wandb.run.name = run_name
+
+        # Load data
+        train_pairs = read_data(TRAIN_FILE)
+        dev_pairs   = read_data(DEV_FILE)
+        char2idx, _ = build_vocab(train_pairs + dev_pairs)
+        pad_idx     = char2idx['<pad>']
+
+        if not train_pairs:
+            print("[FATAL] No training data found. Check paths/format.")
+            return
+
+        train_ds = TransliterationDataset(train_pairs, char2idx, char2idx, MAX_LEN, MAX_LEN)
+        dev_ds   = TransliterationDataset(dev_pairs,   char2idx, char2idx, MAX_LEN, MAX_LEN)
+        train_loader = DataLoader(train_ds, batch_size=cfg.batch_size, shuffle=True)
+        dev_loader   = DataLoader(dev_ds,   batch_size=cfg.batch_size)
+
+        # Build model
+        encoder = Encoder(
+            input_dim=len(char2idx),
+            emb_dim=cfg.emb_dim,
+            hid_dim=cfg.hid_dim,
+            n_layers=cfg.n_encoder_layers,
+            cell_type=cfg.cell_type,
+            dropout=cfg.dropout
+        )
+        decoder = Decoder(
+            output_dim=len(char2idx),
+            emb_dim=cfg.emb_dim,
+            hid_dim=cfg.hid_dim,
+            n_layers=cfg.n_decoder_layers,
+            cell_type=cfg.cell_type,
+            dropout=cfg.dropout
+        )
+        model = Seq2Seq(encoder, decoder, DEVICE).to(DEVICE)
+
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+        criterion = nn.CrossEntropyLoss(ignore_index=pad_idx)
+
+        best_val_seq_acc = 0.0
+        for epoch in range(1, cfg.epochs + 1):
+            train_loss, train_seq_acc, train_char_acc = train_epoch(
+                model, train_loader, optimizer, criterion, pad_idx
+            )
+            val_seq_acc, val_char_acc = eval_epoch(
+                model, dev_loader, criterion, pad_idx
+            )
+
+            wandb.log({
+                "train_loss":    train_loss,
+                "train_seq_acc": train_seq_acc,
+                "train_char_acc":train_char_acc,
+                "val_seq_acc":   val_seq_acc,
+                "val_char_acc":  val_char_acc,
+                "epoch":         epoch
+            })
+            print(
+                f"Epoch {epoch} | "
+                f"Tr Loss: {train_loss:.4f} | Tr SeqAcc: {train_seq_acc:.4f} | Tr CharAcc: {train_char_acc:.4f} | "
+                f"Val SeqAcc: {val_seq_acc:.4f} | Val CharAcc: {val_char_acc:.4f}"
+            )
+
+            if val_seq_acc > best_val_seq_acc:
+                best_val_seq_acc = val_seq_acc
+                torch.save(
+                    model.state_dict(),
+                    f"best_model_{wandb.run.name}.pt"
+                )
+                print(f"✅ Saved best model at epoch {epoch} with Val SeqAcc = {val_seq_acc:.4f}")
 
 if __name__ == "__main__":
     main()
