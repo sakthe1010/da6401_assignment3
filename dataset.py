@@ -1,59 +1,49 @@
 import torch
 from torch.utils.data import Dataset
-import unicodedata
-import os
+from collections import defaultdict
+import pandas as pd
 
-def normalize(text):
-    return unicodedata.normalize("NFC", text.strip())
-
-def read_data(file_path):
-    pairs = []
-    try:
-        with open(file_path, 'r', encoding='utf-8-sig') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                parts = line.split('\t')
-                if len(parts) >= 2:
-                    tgt = normalize(parts[0])
-                    src = normalize(parts[1])
-                    pairs.append((src, tgt))
-    except FileNotFoundError:
-        print(f"[ERROR] File not found: {file_path}")
-    except Exception as e:
-        print(f"[ERROR] Failed to read {file_path}: {e}")
-
-    print(f"[INFO] Loaded {len(pairs)} pairs from {file_path}")
-    return pairs
-
-def build_vocab(pairs, sos='<sos>', eos='<eos>', pad='<pad>'):
-    vocab = set(char for seq, _ in pairs for char in seq)
-    vocab |= set(char for _, seq in pairs for char in seq)
-    tokens = [pad, sos, eos] + sorted(vocab)
-    idx2char = tokens
-    char2idx = {ch: idx for idx, ch in enumerate(tokens)}
-    return char2idx, idx2char
-
-def encode(seq, char2idx, max_len):
-    tokens = ['<sos>'] + list(seq) + ['<eos>']
-    idxs = [char2idx.get(c, 0) for c in tokens]
-    idxs += [char2idx['<pad>']] * (max_len - len(idxs))
-    return idxs[:max_len]
 
 class TransliterationDataset(Dataset):
-    def __init__(self, data_pairs, inp_char2idx, out_char2idx, max_len_input, max_len_output):
-        self.data_pairs = data_pairs
-        self.inp_char2idx = inp_char2idx
-        self.out_char2idx = out_char2idx
-        self.max_len_input = max_len_input
-        self.max_len_output = max_len_output
+    def __init__(self, path, src_vocab=None, tgt_vocab=None):
+        self.data = pd.read_csv(path, sep='\t', header=None, names=['target', 'input', 'freq'])
+        self.inputs = self.data['input'].astype(str).tolist()
+        self.targets = self.data['target'].astype(str).tolist()
+
+        self.src_vocab = src_vocab or self.build_vocab(self.inputs)
+        self.tgt_vocab = tgt_vocab or self.build_vocab(self.targets)
+
+        self.src_idx2char = {i: ch for ch, i in self.src_vocab.items()}
+        self.tgt_idx2char = {i: ch for ch, i in self.tgt_vocab.items()}
+
+    def build_vocab(self, sequences):
+        vocab = {'<pad>': 0, '<sos>': 1, '<eos>': 2}
+        idx = 3
+        for seq in sequences:
+            for ch in seq:
+                if ch not in vocab:
+                    vocab[ch] = idx
+                    idx += 1
+        return vocab
 
     def __len__(self):
-        return len(self.data_pairs)
+        return len(self.inputs)
+
+    def encode_seq(self, seq, vocab):
+        return [vocab['<sos>']] + [vocab[ch] for ch in seq] + [vocab['<eos>']]
 
     def __getitem__(self, idx):
-        src, tgt = self.data_pairs[idx]
-        src_tensor = torch.tensor(encode(src, self.inp_char2idx, self.max_len_input))
-        tgt_tensor = torch.tensor(encode(tgt, self.out_char2idx, self.max_len_output))
-        return src_tensor, tgt_tensor
+        src_seq = self.encode_seq(self.inputs[idx], self.src_vocab)
+        tgt_seq = self.encode_seq(self.targets[idx], self.tgt_vocab)
+        return torch.tensor(src_seq), torch.tensor(tgt_seq)
+
+
+def collate_fn(batch):
+    src_batch, tgt_batch = zip(*batch)
+    src_lens = [len(seq) for seq in src_batch]
+    tgt_lens = [len(seq) for seq in tgt_batch]
+
+    src_pad = torch.nn.utils.rnn.pad_sequence(src_batch, padding_value=0, batch_first=True)
+    tgt_pad = torch.nn.utils.rnn.pad_sequence(tgt_batch, padding_value=0, batch_first=True)
+
+    return src_pad, tgt_pad, src_lens, tgt_lens
