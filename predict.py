@@ -15,7 +15,7 @@ def main():
     print(f"Device: {device}")
 
     # Load checkpoint containing model + config + vocabs
-    checkpoint = torch.load("assignment_3/best_model_full.pt")
+    checkpoint = torch.load("best_vanilla_model.pt")
 
     config = checkpoint["config"]
     src_vocab = checkpoint["src_vocab"]

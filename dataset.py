@@ -4,10 +4,26 @@ from collections import defaultdict
 import pandas as pd
 
 
+# ---------- module-level placeholders so they can be imported ----------
+src_char2idx = {}
+tgt_char2idx = {}
+src_idx2char = {}
+tgt_idx2char = {}
+
+def get_vocabs():
+    """
+    Returns the four lookup tables once the first TransliterationDataset
+    has been instantiated.
+    """
+    return src_char2idx, tgt_char2idx, src_idx2char, tgt_idx2char
+# ------------------------------------------------------------------------
+
+
 class TransliterationDataset(Dataset):
     def __init__(self, path, src_vocab=None, tgt_vocab=None):
-        self.data = pd.read_csv(path, sep='\t', header=None, names=['target', 'input', 'freq'])
-        self.inputs = self.data['input'].astype(str).tolist()
+        self.data = pd.read_csv(path, sep='\t', header=None,
+                                names=['target', 'input', 'freq'])
+        self.inputs  = self.data['input'].astype(str).tolist()
         self.targets = self.data['target'].astype(str).tolist()
 
         self.src_vocab = src_vocab or self.build_vocab(self.inputs)
@@ -15,6 +31,14 @@ class TransliterationDataset(Dataset):
 
         self.src_idx2char = {i: ch for ch, i in self.src_vocab.items()}
         self.tgt_idx2char = {i: ch for ch, i in self.tgt_vocab.items()}
+
+        # ---------- ➋ expose the dictionaries at module scope ----------
+        global src_char2idx, tgt_char2idx, src_idx2char, tgt_idx2char
+        src_char2idx = self.src_vocab
+        tgt_char2idx = self.tgt_vocab
+        src_idx2char = self.src_idx2char
+        tgt_idx2char = self.tgt_idx2char
+        # ----------------------------------------------------------------
 
     def build_vocab(self, sequences):
         vocab = {'<pad>': 0, '<sos>': 1, '<eos>': 2}

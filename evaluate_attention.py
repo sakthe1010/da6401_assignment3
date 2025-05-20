@@ -25,7 +25,7 @@ CONFIG = {
     'cell_type': 'LSTM',
     'dropout': 0.2,
     'lr': 0.001,
-    'epochs': 1
+    'epochs': 25
 }
 def visualize_attention_heatmaps(attn_weights, src_batch, pred_batch, idx2src, idx2tgt, save_dir="heatmaps"):
     import matplotlib.pyplot as plt
