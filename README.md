@@ -24,6 +24,8 @@ da6401_assignment3-main/
 ├── predictions_attention/      # Output predictions (attention)
 ├── heatmaps/                   # Visual attention heatmaps
 ├── test_results.txt            # Output log for test cases
+├── attention_viz.html           # final html file for interactive visualization)
+├── visualize_attention.py          # For visualization (question 6)
 ```
 
 ---
@@ -100,10 +102,14 @@ python predict.py
 ```bash
 # Generate attention heatmaps
 python vizualize_attention.py
+
+# Generate interactive visualizations as required in assignment 6
+python visualize_attention.py --dataset "dakshina_dataset_v1.0/ta/lexicons/ta.translit.sampled.train.tsv" --lstm_ckpt "best_attention_model.pt" --gru_ckpt "best_vanilla_model.pt" --src "context" --tgt "கணடகஸட"   
 ```
 
 Artifacts:
 
+* `attention-viz.html` 
 * `confusion_matrix_true.png`
 * `attention_heatmap_grid_correct.png`
 
