@@ -1,0 +1,5 @@
+Device: cuda
+🔄 Loading best model weights...
+
+🧪 Test Accuracy: 0.5587 | Test Loss: 0.9028
+📄 Test predictions saved to: predictions_vanilla/test_predictions.tsv

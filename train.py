@@ -7,16 +7,18 @@ import pandas as pd
 from dataset import TransliterationDataset, collate_fn
 from model import Encoder, Decoder, Seq2Seq
 
+import copy
+
 wandb.init(project="ASSIGNMENT_3", config={
-    'batch_size': 64,
-    'emb_dim': 128,
-    'hidden_dim': 256,
-    'enc_layers': 1,
-    'dec_layers': 1,
-    'cell_type': 'LSTM',
-    'dropout': 0.2,
+    'batch_size': 16,
+    'emb_dim': 32,
+    'hidden_dim': 128,
+    'enc_layers': 3,
+    'dec_layers': 3,
+    'cell_type': 'GRU',
+    'dropout': 0.3,
     'lr': 0.001,
-    'epochs': 5,
+    'epochs': 100,
 })
 
 run = wandb.run
@@ -91,12 +93,14 @@ def evaluate(model, loader, criterion, device, src_idx2char, tgt_idx2char):
                 all_preds.append((src_str, tgt_str, pred_str))
     return total_loss / len(loader), total_acc / len(loader), all_preds
 
-def save_best_predictions(predictions):
+
+def save_predictions(predictions, filename):
     df = pd.DataFrame(predictions, columns=["Input", "Target", "Predicted"])
-    df.to_csv("best_predictions.tsv", sep="\t", index=False)
+    df.to_csv(filename, sep="\t", index=False)
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
     config = wandb.config
 
     train_set = TransliterationDataset("dakshina_dataset_v1.0/ta/lexicons/ta.translit.sampled.train.tsv")
@@ -117,6 +121,12 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     criterion = nn.CrossEntropyLoss(ignore_index=0)
 
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2, verbose=True)
+
+    patience = 10
+    early_stop_counter = 0
+    best_model_state = None
+
     best_val_acc = 0.0
     best_predictions = []
 
@@ -128,21 +138,41 @@ def main():
 
         print(f"Train Accuracy: {train_acc:.4f} | Val Accuracy: {val_acc:.4f}")
         wandb.log({
+            "epoch": epoch + 1,
             "train_loss": train_loss,
             "train_acc": train_acc,
             "val_loss": val_loss,
-            "val_acc": val_acc
+            "val_acc": val_acc,
+            "lr": optimizer.param_groups[0]['lr']
         })
+
+        scheduler.step(val_acc)
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            torch.save(model.state_dict(), "best_model.pt")
+            best_model_state = copy.deepcopy(model.state_dict())
             best_predictions = val_preds
+            early_stop_counter = 0
             print(f"✅ New best model saved (val_acc={val_acc:.4f})")
+        else:
+            early_stop_counter += 1
+            print(f"⏳ No improvement. Early stop counter: {early_stop_counter}/{patience}")
+            if early_stop_counter >= patience:
+                print("⛔ Early stopping triggered.")
+                break
+    
+    if best_model_state:
+        torch.save({
+            "model_state_dict": best_model_state,
+            "config": dict(wandb.config),
+            "src_vocab": train_set.src_vocab,
+            "tgt_vocab": train_set.tgt_vocab,
+        }, "best_model_full.pt")
 
-    save_best_predictions(best_predictions)
-    print(f"\n🎯 Best validation accuracy: {best_val_acc:.4f}")
-    print("✔️ Saved best model and predictions to disk.")
+        save_predictions(best_predictions, "best_model_val_predictions.tsv")
+        print(f"\n🎯 Best validation accuracy: {best_val_acc:.4f}")
+        print("✔️ Saved best model and predictions to disk.")
+
 
 if __name__ == "__main__":
     main()
