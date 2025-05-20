@@ -1,0 +1,25 @@
+method: bayes  # You can switch to 'grid' or 'random' for debugging
+program: train_attention.py
+metric:
+  name: val_acc
+  goal: maximize
+
+parameters:
+  batch_size:
+    values: [32, 64]
+  emb_dim:
+    values: [64, 128]
+  hidden_dim:
+    values: [128, 256]
+  attn_dim:
+    values: [64, 128]
+  dropout:
+    values: [0.2, 0.3]
+  lr:
+    values: [0.001, 0.0005]
+  cell_type:
+    values: ["LSTM", "GRU"]
+  enc_layers:
+    values: [1]
+  dec_layers:
+    values: [1]

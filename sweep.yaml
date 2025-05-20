@@ -16,7 +16,7 @@ parameters:
   dec_layers:
     values: [1, 2, 3]
   cell_type:
-    values: ["RNN", "LSTM", "GRU"]
+    values: ["LSTM", "GRU"]
   dropout:
     values: [0.2, 0.3]
   lr:
