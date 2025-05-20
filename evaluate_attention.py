@@ -8,8 +8,11 @@ from tqdm import tqdm
 import os
 import seaborn as sns
 import matplotlib.pyplot as plt 
-import matplotlib
-matplotlib.rcParams['font.family'] = 'Noto Sans Tamil'
+import matplotlib.font_manager as fm
+
+font_path = "/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf"
+font_prop = fm.FontProperties(fname=font_path)
+
 
 # Config (BEST from W&B sweep or train_attention.py)
 CONFIG = {
@@ -25,22 +28,33 @@ CONFIG = {
     'epochs': 1
 }
 def visualize_attention_heatmaps(attn_weights, src_batch, pred_batch, idx2src, idx2tgt, save_dir="heatmaps"):
+    import matplotlib.pyplot as plt
+    import seaborn as sns
+    import os
+
     os.makedirs(save_dir, exist_ok=True)
+    tamil_font = fm.FontProperties(fname="/usr/share/fonts/truetype/noto/NotoSansTamil-Regular.ttf")
+
     for i in range(min(len(attn_weights), 9)):
         src_str = clean_sequence(src_batch[i].tolist(), idx2src)
         pred_str = clean_sequence(pred_batch[i].tolist(), idx2tgt)
-
         attn = attn_weights[i][:len(pred_str), :len(src_str)].cpu().numpy()
 
         plt.figure(figsize=(6, 4))
-        sns.heatmap(attn, xticklabels=list(src_str), yticklabels=list(pred_str),
-                    cmap='viridis', cbar=True, linewidths=0.5)
-        plt.xlabel("Input (Romanized)")
-        plt.ylabel("Output (Tamil)")
-        plt.title(f"Attention Heatmap {i+1}")
+        ax = sns.heatmap(attn, xticklabels=list(src_str), yticklabels=list(pred_str),
+                         cmap='viridis', cbar=True)
+
+        # Force Tamil font on y-tick labels
+        for label in ax.get_yticklabels():
+            label.set_fontproperties(tamil_font)
+
+        ax.set_xlabel("Input (Romanized)", fontsize=12)
+        ax.set_ylabel("Output (தமிழ்)", fontproperties=tamil_font, fontsize=12)
+        plt.title(f"Attention Heatmap {i+1}", fontsize=13)
         plt.tight_layout()
         plt.savefig(f"{save_dir}/heatmap_{i+1}.png")
         plt.close()
+
 def clean_sequence(seq, idx2char):
     result = []
     for i in seq:
