@@ -14,7 +14,7 @@ wandb.init(project="ASSIGNMENT_3_ATTENTION", config={
     'attn_dim': 128,
     'enc_layers': 1,
     'dec_layers': 1,
-    'cell_type': 'LSTM',
+    'cell_type': 'GRU',
     'dropout': 0.2,
     'lr': 0.001,
     'epochs': 5,
