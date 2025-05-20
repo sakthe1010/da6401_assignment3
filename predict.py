@@ -54,9 +54,9 @@ def main():
         src_idx2char, tgt_idx2char
     )
 
-    print(f"\n🧪 Test Accuracy: {test_acc:.4f} | Test Loss: {test_loss:.4f}")
+    print(f"\nTest Accuracy: {test_acc:.4f} | Test Loss: {test_loss:.4f}")
     save_predictions(test_preds, "predictions_vanilla/best_model_test_predictions.tsv")
-    print("📄 Test predictions saved to: predictions_vanilla/test_predictions.tsv")
+    print("Test predictions saved to: predictions_vanilla/test_predictions.tsv")
 
 if __name__ == "__main__":
     main()

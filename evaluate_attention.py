@@ -146,13 +146,13 @@ def main():
     # Evaluate
     test_loss, test_acc, test_preds = evaluate(model, test_loader, criterion, device,
                                                train_set.src_idx2char, train_set.tgt_idx2char)
-    print(f"\n✅ Test Accuracy: {test_acc:.4f}")
+    print(f"\nTest Accuracy: {test_acc:.4f}")
 
     # Save predictions
     os.makedirs("predictions_attention", exist_ok=True)
     pd.DataFrame(test_preds, columns=["Input", "Target", "Predicted"]).to_csv(
         "predictions_attention/predictions_attention.tsv", sep="\t", index=False)
-    print("📄 Predictions saved to predictions_attention.tsv")
+    print("Predictions saved to predictions_attention.tsv")
 
     # For attention heatmaps, take one batch again
     src, tgt, src_lens, tgt_lens = next(iter(test_loader))
@@ -162,7 +162,7 @@ def main():
         pred_tokens = output.argmax(dim=-1)
 
     visualize_attention_heatmaps(attn_weights, src, pred_tokens, train_set.src_idx2char, train_set.tgt_idx2char)
-    print("📊 Saved attention heatmaps to heatmaps/")
+    print("Saved attention heatmaps to heatmaps/")
 
 if __name__ == "__main__":
     main()

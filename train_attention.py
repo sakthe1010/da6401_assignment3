@@ -14,7 +14,7 @@ wandb.init(project="ASSIGNMENT_3_ATTENTION", config={
     'attn_dim': 128,
     'enc_layers': 1,
     'dec_layers': 1,
-    'cell_type': 'GRU',
+    'cell_type': 'LSTM',
     'dropout': 0.2,
     'lr': 0.001,
     'epochs': 5,
@@ -144,17 +144,17 @@ def main():
         # Save this epoch’s predictions
         epoch_path = f"epoch_{epoch + 1}_predictions.tsv"
         pd.DataFrame(val_preds, columns=["Input", "Target", "Predicted"]).to_csv(epoch_path, sep="\t", index=False)
-        print(f"📄 Saved predictions for epoch {epoch + 1} to: {epoch_path}")
+        print(f"Saved predictions for epoch {epoch + 1} to: {epoch_path}")
 
         # Save best model
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             torch.save(model.state_dict(), "best_attention_model.pt")
             best_predictions = val_preds
-            print(f"✅ New best attention model saved (val_acc={val_acc:.4f})")
+            print(f"New best attention model saved (val_acc={val_acc:.4f})")
 
     save_best_predictions(best_predictions)
-    print(f"\n🎯 Best validation accuracy: {best_val_acc:.4f}")
+    print(f"\nBest validation accuracy: {best_val_acc:.4f}")
     print("✔️ Saved best attention-based model and predictions.")
 
 if __name__ == "__main__":

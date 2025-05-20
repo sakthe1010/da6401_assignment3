@@ -153,12 +153,12 @@ def main():
             best_model_state = copy.deepcopy(model.state_dict())
             best_predictions = val_preds
             early_stop_counter = 0
-            print(f"✅ New best model saved (val_acc={val_acc:.4f})")
+            print(f"New best model saved (val_acc={val_acc:.4f})")
         else:
             early_stop_counter += 1
-            print(f"⏳ No improvement. Early stop counter: {early_stop_counter}/{patience}")
+            print(f"No improvement. Early stop counter: {early_stop_counter}/{patience}")
             if early_stop_counter >= patience:
-                print("⛔ Early stopping triggered.")
+                print("Early stopping triggered.")
                 break
     
     if best_model_state:
@@ -170,8 +170,8 @@ def main():
         }, "best_model_full.pt")
 
         save_predictions(best_predictions, "best_model_val_predictions.tsv")
-        print(f"\n🎯 Best validation accuracy: {best_val_acc:.4f}")
-        print("✔️ Saved best model and predictions to disk.")
+        print(f"\nBest validation accuracy: {best_val_acc:.4f}")
+        print("Saved best model and predictions to disk.")
 
 
 if __name__ == "__main__":
