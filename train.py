@@ -7,7 +7,6 @@ import pandas as pd
 from dataset import TransliterationDataset, collate_fn
 from model import Encoder, Decoder, Seq2Seq
 
-# Fresh run project
 wandb.init(project="ASSIGNMENT_3", config={
     'batch_size': 64,
     'emb_dim': 128,
@@ -17,8 +16,14 @@ wandb.init(project="ASSIGNMENT_3", config={
     'cell_type': 'LSTM',
     'dropout': 0.2,
     'lr': 0.001,
-    'epochs': 30,
+    'epochs': 5,
 })
+
+run = wandb.run
+run.name = f"bs{wandb.config.batch_size}_emb{wandb.config.emb_dim}_hd{wandb.config.hidden_dim}_" \
+           f"enc{wandb.config.enc_layers}_dec{wandb.config.dec_layers}_{wandb.config.cell_type}_" \
+           f"do{wandb.config.dropout}_lr{wandb.config.lr}"
+run.save()
 
 def clean_sequence(seq, idx2char):
     result = []
@@ -50,7 +55,7 @@ def train_one_epoch(model, loader, optimizer, criterion, device):
     model.train()
     total_loss = 0
     total_acc = 0
-    pbar = tqdm(loader, desc="Training")
+    pbar = tqdm(loader, desc="Training", dynamic_ncols=True)
     for src, tgt, src_lens, tgt_lens in pbar:
         src, tgt = src.to(device), tgt.to(device)
         optimizer.zero_grad()
@@ -98,11 +103,15 @@ def main():
     val_set = TransliterationDataset("dakshina_dataset_v1.0/ta/lexicons/ta.translit.sampled.dev.tsv",
                                      src_vocab=train_set.src_vocab, tgt_vocab=train_set.tgt_vocab)
 
-    train_loader = DataLoader(train_set, batch_size=config.batch_size, shuffle=True, collate_fn=collate_fn)
-    val_loader = DataLoader(val_set, batch_size=config.batch_size, collate_fn=collate_fn)
+    train_loader = DataLoader(train_set, batch_size=config.batch_size, shuffle=True,
+                              collate_fn=collate_fn, num_workers=0, pin_memory=False)
+    val_loader = DataLoader(val_set, batch_size=config.batch_size,
+                            collate_fn=collate_fn, num_workers=0, pin_memory=False)
 
-    encoder = Encoder(len(train_set.src_vocab), config.emb_dim, config.hidden_dim, config.enc_layers, config.cell_type, config.dropout)
-    decoder = Decoder(len(train_set.tgt_vocab), config.emb_dim, config.hidden_dim, config.dec_layers, config.cell_type, config.dropout)
+    encoder = Encoder(len(train_set.src_vocab), config.emb_dim, config.hidden_dim,
+                      config.enc_layers, config.cell_type, config.dropout)
+    decoder = Decoder(len(train_set.tgt_vocab), config.emb_dim, config.hidden_dim,
+                      config.dec_layers, config.cell_type, config.dropout)
     model = Seq2Seq(encoder, decoder, device).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
@@ -114,7 +123,8 @@ def main():
     for epoch in range(config.epochs):
         print(f"\nEpoch {epoch+1}/{config.epochs}")
         train_loss, train_acc = train_one_epoch(model, train_loader, optimizer, criterion, device)
-        val_loss, val_acc, val_preds = evaluate(model, val_loader, criterion, device, train_set.src_idx2char, train_set.tgt_idx2char)
+        val_loss, val_acc, val_preds = evaluate(model, val_loader, criterion, device,
+                                                train_set.src_idx2char, train_set.tgt_idx2char)
 
         print(f"Train Accuracy: {train_acc:.4f} | Val Accuracy: {val_acc:.4f}")
         wandb.log({
