@@ -54,7 +54,7 @@ The project uses the **Tamil subset** of the [Dakshina dataset](https://huggingf
 * Attention weights visualized per input
 
 ---
-
+# Using the Model
 ## Training
 
 ```bash
@@ -90,7 +90,7 @@ wandb agent <sweep_id>
 python evaluate_attention.py
 
 # Predict & Save outputs
-python predict.py --model_type vanilla|attention --output_dir predictions_vanilla/
+python predict.py
 ```
 
 ---
